@@ -1,0 +1,63 @@
+from bayes_opt import BayesianOptimization
+from Recommenders.OldSLIM import SLIM_BPR
+import scipy.sparse as sps
+import numpy as np
+from Base import utilFunctions as f, evaluation_function as evaluation
+
+
+# load data
+urm_path = "../Data/data_train.csv"
+urm_file = open(urm_path, 'r')
+
+# read URM file and produce lists of items and users
+userList, itemList = f.get_urm_lists(urm_file)
+
+# not unique lists of users, items and ratings
+userList = list(userList)
+itemList = list(itemList)
+ratingList = list(np.ones(len(userList)))
+
+# URM matrix (explicit ratings)
+urm_all = sps.coo_matrix((ratingList, (userList, itemList)))
+urm_all = urm_all.tocsr()
+
+# separate test set from urm_all: from now on, urm_all = urm_train and urm_valid, while urm_test is isolated
+# when creating submission file: no need of splitting data
+urm_all, urm_test = f.create_test_set(urm_all)
+
+
+# split into train and validation URM: use for tuning parameters
+urm_train, urm_valid = f.train_validation_holdout(urm_all)
+
+tuning_params = dict()
+tuning_params = {
+    "LEARNING_RATE": (0.0001,0.05),
+    "EPOCHS": (1,200),
+    "K": (10,500)
+
+ }
+
+def BO_func(LEARNING_RATE, EPOCHS, K):
+    recommender = SLIM_BPR(urm_train)
+    recommender.fit(learning_rate=LEARNING_RATE, epochs=int(EPOCHS), k=int(K))
+    res_valid = evaluation.evaluate_algorithm(urm_valid, recommender, 10)
+
+    return res_valid["MAP"]
+
+optimizer = BayesianOptimization(
+    f = BO_func,
+    pbounds = tuning_params,
+    verbose = 5,
+    random_state = 5,
+ )
+
+optimizer.maximize(
+    init_points = 4,
+    n_iter = 3,
+ )
+
+print("finito:")
+print(optimizer.max)
+print("tutti i parametri:")
+print(optimizer.res)
+
